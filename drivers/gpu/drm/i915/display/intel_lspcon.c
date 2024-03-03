@@ -240,7 +240,7 @@ static bool lspcon_wake_native_aux_ch(struct intel_lspcon *lspcon)
 	return true;
 }
 
-static bool lspcon_probe(struct intel_lspcon *lspcon)
+bool lspcon_probe(struct intel_lspcon *lspcon)
 {
 	int retry;
 	enum drm_dp_dual_mode_type adaptor_type;
@@ -270,6 +270,18 @@ static bool lspcon_probe(struct intel_lspcon *lspcon)
 
 	/* Yay ... got a LSPCON device */
 	drm_dbg_kms(&i915->drm, "LSPCON detected\n");
+	return true;
+}
+
+static bool lspcon_set_expected_mode(struct intel_lspcon *lspcon)
+{
+	struct intel_dp *intel_dp = lspcon_to_intel_dp(lspcon);
+	struct drm_i915_private *i915 = dp_to_i915(intel_dp);
+	enum drm_lspcon_mode expected_mode;
+
+	expected_mode = lspcon_wake_native_aux_ch(lspcon) ?
+			DRM_LSPCON_MODE_PCON : DRM_LSPCON_MODE_LS;
+
 	lspcon->mode = lspcon_wait_mode(lspcon, expected_mode);
 
 	/*
@@ -666,25 +678,32 @@ bool lspcon_init(struct intel_digital_port *dig_port)
 	lspcon->active = false;
 	lspcon->mode = DRM_LSPCON_MODE_INVALID;
 
-	if (!lspcon_probe(lspcon)) {
-		drm_err(&i915->drm, "Failed to probe lspcon\n");
-		return false;
+	if (!lspcon_set_expected_mode(lspcon)) {
+		drm_err(&i915->drm, "LSPCON Set expected Mode failed\n");
+		goto lspcon_init_failed;
 	}
 
 	if (drm_dp_read_dpcd_caps(&intel_dp->aux, intel_dp->dpcd) != 0) {
 		drm_err(&i915->drm, "LSPCON DPCD read failed\n");
-		return false;
+		goto lspcon_init_failed;
 	}
 
 	if (!lspcon_detect_vendor(lspcon)) {
 		drm_err(&i915->drm, "LSPCON vendor detection failed\n");
-		return false;
+		goto lspcon_init_failed;
 	}
 
 	connector->ycbcr_420_allowed = true;
 	lspcon->active = true;
 	drm_dbg_kms(&i915->drm, "Success: LSPCON init\n");
+
 	return true;
+
+lspcon_init_failed:
+	drm_err(&i915->drm, "LSPCON init failed on port %c\n",
+		port_name(dig_port->base.port));
+
+	return false;
 }
 
 u32 intel_lspcon_infoframes_enabled(struct intel_encoder *encoder,
@@ -706,11 +725,11 @@ void lspcon_resume(struct intel_digital_port *dig_port)
 		return;
 
 	if (!lspcon->active) {
-		if (!lspcon_init(dig_port)) {
-			drm_err(&i915->drm, "LSPCON init failed on port %c\n",
-				port_name(dig_port->base.port));
+		if (!lspcon_probe(lspcon))
 			return;
-		}
+
+		if (!lspcon_init(dig_port))
+			return;
 	}
 
 	if (lspcon_wake_native_aux_ch(lspcon)) {
