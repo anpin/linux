@@ -501,20 +501,22 @@ int drm_lspcon_set_mode(const struct drm_device *dev, struct i2c_adapter *adapte
 	if (mode == DRM_LSPCON_MODE_PCON)
 		data = DP_DUAL_MODE_LSPCON_MODE_PCON;
 
-	/* Change mode */
-	ret = drm_dp_dual_mode_write(adapter, DP_DUAL_MODE_LSPCON_MODE_CHANGE,
-				     &data, sizeof(data));
-	if (ret < 0) {
-		drm_err(dev, "LSPCON mode change failed\n");
-		return ret;
-	}
 
 	/*
+	 * Try setting the LS/PCON mode multiple times.
 	 * Confirm mode change by reading the status bit.
 	 * Sometimes, it takes a while to change the mode,
 	 * so wait and retry until time out or done.
 	 */
 	do {
+		/* Change mode */
+		ret = drm_dp_dual_mode_write(adapter, DP_DUAL_MODE_LSPCON_MODE_CHANGE,
+					     &data, sizeof(data));
+		if (ret < 0) {
+			drm_err(dev, "LSPCON mode change failed\n");
+			return ret;
+		}
+
 		ret = drm_lspcon_get_mode(dev, adapter, &current_mode);
 		if (ret) {
 			drm_err(dev, "can't confirm LSPCON mode change\n");
