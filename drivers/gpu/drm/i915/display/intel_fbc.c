@@ -38,6 +38,7 @@
  * forcibly disable it to allow proper screen updates.
  */
 
+#include <linux/debugfs.h>
 #include <linux/string_helpers.h>
 
 #include <drm/drm_blend.h>
@@ -56,6 +57,7 @@
 #include "intel_display_device.h"
 #include "intel_display_trace.h"
 #include "intel_display_types.h"
+#include "intel_display_wa.h"
 #include "intel_fbc.h"
 #include "intel_fbc_regs.h"
 #include "intel_frontbuffer.h"
@@ -1309,6 +1311,11 @@ static int intel_fbc_check_plane(struct intel_atomic_state *state,
 		return 0;
 	}
 
+	if (intel_display_needs_wa_16023588340(i915)) {
+		plane_state->no_fbc_reason = "Wa_16023588340";
+		return 0;
+	}
+
 	/* WaFbcTurnOffFbcWhenHyperVisorIsUsed:skl,bxt */
 	if (i915_vtd_active(i915) && (IS_SKYLAKE(i915) || IS_BROXTON(i915))) {
 		plane_state->no_fbc_reason = "VT-d enabled";
@@ -1340,7 +1347,7 @@ static int intel_fbc_check_plane(struct intel_atomic_state *state,
 
 	/* Wa_14016291713 */
 	if ((IS_DISPLAY_VER(display, 12, 13) ||
-	     IS_DISPLAY_IP_STEP(i915, IP_VER(14, 0), STEP_A0, STEP_C0)) &&
+	     IS_DISPLAY_VERx100_STEP(i915, 1400, STEP_A0, STEP_C0)) &&
 	    crtc_state->has_psr && !crtc_state->has_panel_replay) {
 		plane_state->no_fbc_reason = "PSR1 enabled (Wa_14016291713)";
 		return 0;
@@ -1786,7 +1793,6 @@ static void intel_fbc_underrun_work_fn(struct work_struct *work)
 {
 	struct intel_fbc *fbc = container_of(work, typeof(*fbc), underrun_work);
 	struct intel_display *display = fbc->display;
-	struct drm_i915_private *i915 = to_i915(display->drm);
 
 	mutex_lock(&fbc->lock);
 
@@ -1799,7 +1805,7 @@ static void intel_fbc_underrun_work_fn(struct work_struct *work)
 
 	intel_fbc_deactivate(fbc, "FIFO underrun");
 	if (!fbc->flip_pending)
-		intel_crtc_wait_for_next_vblank(intel_crtc_for_pipe(i915, fbc->state.plane->pipe));
+		intel_crtc_wait_for_next_vblank(intel_crtc_for_pipe(display, fbc->state.plane->pipe));
 	__intel_fbc_disable(fbc);
 out:
 	mutex_unlock(&fbc->lock);
